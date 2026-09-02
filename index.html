@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Numbers Station</title>
+<meta name="description" content="A shortwave-radio memory game — pick a channel, listen to the transmission, then key it back before the signal is lost.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --void:#0a0d0b;
+    --case:#161c18;
+    --case-hi:#1f2822;
+    --case-line:#2e3a33;
+    --phosphor:#5bf7a0;
+    --phosphor-soft:#3ab377;
+    --phosphor-dim:#2c6b48;
+    --amber:#ffb454;
+    --paper:#cfe0d3;
+    --paper-dim:#8fa79b;
+    --danger:#ff6b57;
+    --font-display:'Oswald', 'Arial Narrow', sans-serif;
+    --font-body:'Spectral', Georgia, serif;
+    --font-mono:'JetBrains Mono', 'Courier New', monospace;
+  }
+
+  *{box-sizing:border-box;}
+  [hidden]{display:none !important;}
+
+  html{ height:100%; }
+
+  body{
+    margin:0;
+    background:var(--void);
+    color:var(--paper);
+    font-family:var(--font-body);
+    height:var(--app-vh, 100dvh);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+    overflow:hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
+  }
+
+  /* the whole game lives in a fixed 9:16 frame, like a handset screen —
+     fills as much of the viewport as it can while keeping that shape.
+     --app-vh/--app-vw are set from JS (window.innerHeight/Width) because
+     dvh alone can be unreliable inside an embedding page's own scroll
+     container; the dvh value is just the pre-JS fallback. */
+  .rig{
+    width:min(var(--app-vw, 100vw), calc(var(--app-vh, 100dvh) * 9 / 16));
+    height:min(var(--app-vh, 100dvh), calc(var(--app-vw, 100vw) * 16 / 9));
+    max-width:480px;
+    max-height:853px;
+    box-sizing:border-box;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, #101915 0%, transparent 60%),
+      var(--void);
+    border:1px solid var(--case-line);
+    border-radius:16px;
+    box-shadow:0 40px 90px -40px rgba(0,0,0,0.85);
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+    padding:22px 18px;
+    overflow-y:auto;
+    scrollbar-width:thin;
+    scrollbar-color:var(--case-line) transparent;
+  }
+  .rig::-webkit-scrollbar{width:6px;}
+  .rig::-webkit-scrollbar-thumb{background:var(--case-line); border-radius:3px;}
+
+  /* ---- header ---- */
+  .masthead{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:12px;
+    padding:0 4px;
+  }
+  .masthead h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:1.5rem;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    margin:0;
+    color:var(--paper);
+    text-wrap:balance;
+  }
+  .masthead .tag{
+    font-family:var(--font-mono);
+    font-size:0.7rem;
+    color:var(--phosphor-dim);
+    letter-spacing:0.05em;
+    white-space:nowrap;
+  }
+
+  /* ---- console case ---- */
+  .console{
+    background:linear-gradient(180deg, var(--case-hi), var(--case) 40%);
+    border:1px solid var(--case-line);
+    border-radius:10px;
+    padding:20px;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.04) inset,
+      0 30px 60px -30px rgba(0,0,0,0.8);
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+
+  .readouts{
+    display:grid;
+    grid-template-columns:1fr auto auto;
+    gap:10px;
+    font-family:var(--font-mono);
+    font-size:0.68rem;
+    letter-spacing:0.04em;
+    color:var(--paper-dim);
+  }
+  .readouts .field{
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+  }
+  .readouts .field span:first-child{
+    text-transform:uppercase;
+    color:var(--phosphor-dim);
+    font-size:0.62rem;
+  }
+  .readouts .field span:last-child{
+    color:var(--paper);
+    font-variant-numeric:tabular-nums;
+  }
+  .readouts .field.right{align-items:flex-end;}
+
+  /* ---- screen ---- */
+  .screen{
+    position:relative;
+    background:#050a07;
+    border:1px solid var(--case-line);
+    border-radius:6px;
+    padding:28px 20px;
+    min-height:168px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    overflow:hidden;
+    box-shadow:0 0 0 1px rgba(0,0,0,0.4) inset, 0 0 40px -18px var(--phosphor-soft) inset;
+  }
+  .screen::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:repeating-linear-gradient(
+      to bottom, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 1px,
+      transparent 1px, transparent 3px
+    );
+    pointer-events:none;
+    mix-blend-mode:overlay;
+  }
+  .status-line{
+    font-family:var(--font-mono);
+    font-size:0.72rem;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--amber);
+    min-height:1em;
+    text-align:center;
+  }
+  .status-line.lost{color:var(--danger);}
+  .status-line.locked{color:var(--phosphor);}
+
+  .signal-bars{
+    display:flex;
+    gap:4px;
+    align-items:flex-end;
+    height:14px;
+  }
+  .signal-bars .bar{
+    width:5px;
+    border-radius:1px;
+    background:var(--phosphor-dim);
+    opacity:0.3;
+    transition:opacity 150ms ease, background 150ms ease;
+  }
+  .signal-bars .bar:nth-child(1){height:6px;}
+  .signal-bars .bar:nth-child(2){height:10px;}
+  .signal-bars .bar:nth-child(3){height:14px;}
+  .signal-bars .bar.active{
+    background:var(--phosphor);
+    opacity:1;
+    box-shadow:0 0 6px var(--phosphor-soft);
+  }
+
+  .digit-out{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:4.2rem;
+    line-height:1;
+    color:var(--phosphor);
+    text-shadow:0 0 6px var(--phosphor-soft), 0 0 24px rgba(91,247,160,0.35);
+    opacity:0;
+    transform:scale(0.85);
+    transition:opacity 110ms ease, transform 110ms ease;
+    min-height:1em;
+    letter-spacing:0.02em;
+  }
+  .digit-out.lit{opacity:1; transform:scale(1);}
+  .digit-out.pair{font-size:3.1rem;}
+
+  .entry-row{
+    font-family:var(--font-mono);
+    font-size:1.25rem;
+    letter-spacing:0.28em;
+    color:var(--paper-dim);
+    min-height:1.4em;
+    text-align:center;
+  }
+  .entry-row .filled{color:var(--phosphor);}
+  .entry-row .cursor{
+    color:var(--amber);
+    animation:blink 1s steps(1) infinite;
+  }
+  .entry-row .unit-gap{
+    color:var(--phosphor-dim);
+    letter-spacing:0;
+    margin:0 1px;
+  }
+  @keyframes blink{50%{opacity:0;}}
+
+  .result-stats{
+    font-family:var(--font-mono);
+    font-size:0.72rem;
+    letter-spacing:0.03em;
+    color:var(--paper);
+    margin-bottom:12px;
+  }
+  .result-trace{
+    font-size:1.35rem;
+    letter-spacing:0.22em;
+  }
+  .result-trace .result-got{color:var(--phosphor);}
+  .result-trace .result-miss{
+    color:var(--danger);
+    text-decoration:underline;
+    text-underline-offset:4px;
+  }
+  .result-trace .result-unseen{color:var(--paper-dim);}
+
+  /* ---- channel select ---- */
+  .channel-select{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .channel-heading{
+    font-family:var(--font-mono);
+    font-size:0.65rem;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:var(--phosphor-dim);
+    margin:0 0 2px;
+  }
+  .channel{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    width:100%;
+    text-align:left;
+    background:linear-gradient(180deg, var(--case-hi), #171f1a);
+    border:1px solid var(--case-line);
+    border-radius:6px;
+    padding:10px 14px;
+    cursor:pointer;
+    transition:border-color 100ms ease, transform 60ms ease;
+  }
+  .channel:hover{border-color:var(--phosphor-dim);}
+  .channel:active{transform:translateY(1px);}
+  .channel:focus-visible{outline:2px solid var(--phosphor); outline-offset:2px;}
+  .channel-glyph{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:1rem;
+    color:var(--phosphor);
+    min-width:44px;
+    text-align:center;
+    background:#050a07;
+    border-radius:4px;
+    padding:9px 4px;
+    box-shadow:0 0 10px -2px rgba(0,0,0,0.6) inset;
+  }
+  .channel-copy{display:flex; flex-direction:column; gap:1px;}
+  .channel-copy strong{
+    font-family:var(--font-display);
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.07em;
+    font-size:0.85rem;
+    color:var(--paper);
+  }
+  .channel-copy small{
+    font-family:var(--font-mono);
+    font-size:0.66rem;
+    color:var(--paper-dim);
+  }
+
+  /* ---- keypad ---- */
+  .keypad{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .expect-hint{
+    font-family:var(--font-mono);
+    font-size:0.64rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--amber);
+    text-align:center;
+    min-height:1em;
+  }
+  #letterKeys{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .key-row{
+    display:flex;
+    gap:6px;
+  }
+  #digitKeys{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:8px;
+  }
+  .keypad.mode-numbers #letterKeys{display:none;}
+  .keypad.mode-numbers .expect-hint{display:none;}
+  .keypad.mode-letters #digitKeys{display:none;}
+  .keypad.mode-letters .expect-hint{display:none;}
+
+  .key{
+    font-family:var(--font-mono);
+    font-size:1.1rem;
+    font-weight:500;
+    color:var(--paper);
+    background:linear-gradient(180deg, var(--case-hi), #171f1a);
+    border:1px solid var(--case-line);
+    border-radius:6px;
+    padding:14px 0;
+    cursor:pointer;
+    transition:background 100ms ease, transform 60ms ease, border-color 100ms ease;
+  }
+  .key:hover{border-color:var(--phosphor-dim);}
+  .key:active{transform:translateY(1px);}
+  .key:focus-visible{outline:2px solid var(--phosphor); outline-offset:2px;}
+  .key:disabled{opacity:0.3; cursor:not-allowed;}
+  .key.letter{
+    flex:1;
+    font-size:0.8rem;
+    padding:10px 0;
+  }
+
+  /* ---- log ---- */
+  .log{
+    border-top:1px dashed var(--case-line);
+    padding-top:12px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .log h2{
+    font-family:var(--font-mono);
+    font-size:0.65rem;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:var(--phosphor-dim);
+    margin:0 0 2px;
+  }
+  .log ol{
+    list-style:none;
+    margin:0;
+    padding:0;
+    max-height:126px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column-reverse;
+    gap:4px;
+    font-family:var(--font-mono);
+    font-size:0.72rem;
+  }
+  .log li{
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    color:var(--paper-dim);
+    padding:2px 0;
+  }
+  .log li .badge{
+    color:var(--phosphor);
+    white-space:nowrap;
+  }
+  .log li.lost .badge{color:var(--danger);}
+  .log li.retry .badge{color:var(--amber);}
+  .log li.ended .badge{color:var(--paper-dim);}
+  .log::-webkit-scrollbar{width:6px;}
+  .log ol::-webkit-scrollbar{width:6px;}
+  .log ol::-webkit-scrollbar-thumb{background:var(--case-line); border-radius:3px;}
+
+  /* ---- footer ---- */
+  .colophon{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:16px;
+    padding:0 4px;
+    font-size:0.82rem;
+    color:var(--paper-dim);
+    font-style:italic;
+  }
+  /* while a round is actually in play, drop the rulebook copy — just the
+     input area and the controls a player might reach for mid-game */
+  body.playing .colophon{justify-content:center;}
+  body.playing .colophon-hint{display:none;}
+  .colophon button{
+    font-family:var(--font-mono);
+    font-style:normal;
+    font-size:0.68rem;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color:var(--paper-dim);
+    background:none;
+    border:1px solid var(--case-line);
+    border-radius:4px;
+    padding:6px 10px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .colophon button:hover{color:var(--paper); border-color:var(--phosphor-dim);}
+  .colophon button:focus-visible{outline:2px solid var(--phosphor); outline-offset:2px;}
+  .colophon button:disabled{opacity:0.35; cursor:not-allowed;}
+  .colophon button:disabled:hover{color:var(--paper-dim); border-color:var(--case-line);}
+  .colophon-controls{
+    display:flex;
+    gap:8px;
+    flex-shrink:0;
+  }
+  #endBtn:not(:disabled){border-color:var(--danger); color:var(--danger);}
+  #endBtn:not(:disabled):hover{color:var(--paper); border-color:var(--danger); background:rgba(255,107,87,0.12);}
+</style>
+</head>
+<body>
+
+<div class="rig">
+  <div class="masthead">
+    <h1>Numbers Station</h1>
+    <span class="tag" id="freqTag">11.463 MHz · UVB-76</span>
+  </div>
+
+  <div class="console">
+    <div class="readouts">
+      <div class="field">
+        <span>Channel</span>
+        <span id="channelOut">&mdash;</span>
+      </div>
+      <div class="field">
+        <span>Round</span>
+        <span id="roundOut">1</span>
+      </div>
+      <div class="field right">
+        <span>Best</span>
+        <span id="bestOut">0</span>
+      </div>
+    </div>
+
+    <div class="screen">
+      <div class="status-line" id="statusLine">STANDBY</div>
+      <div class="signal-bars" id="signalBars" aria-hidden="true">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      </div>
+      <div class="digit-out" id="digitOut">&nbsp;</div>
+      <div class="entry-row" id="entryRow">Select a channel below. Every round starts with three, and grows by one.</div>
+    </div>
+
+    <div class="channel-select" id="channelSelect">
+      <h2 class="channel-heading">Select a Channel</h2>
+      <button class="channel" type="button" data-mode="numbers">
+        <span class="channel-glyph">0&ndash;9</span>
+        <span class="channel-copy"><strong>Numeric</strong><small>Digits only &middot; 307 &rarr; 3072</small></span>
+      </button>
+      <button class="channel" type="button" data-mode="letters">
+        <span class="channel-glyph">A&ndash;Z</span>
+        <span class="channel-copy"><strong>Alpha</strong><small>Letters only &middot; AFK &rarr; AFKC</small></span>
+      </button>
+      <button class="channel" type="button" data-mode="mixed">
+        <span class="channel-glyph">A9</span>
+        <span class="channel-copy"><strong>Mixed</strong><small>Letters + digits &middot; A2-F5 &rarr; A2-F5-K9</small></span>
+      </button>
+    </div>
+
+    <div class="keypad mode-numbers" id="keypad" hidden>
+      <div class="expect-hint" id="expectHint"></div>
+      <div class="key-group" id="letterKeys">
+        <div class="key-row">
+          <button class="key letter" data-char="Q">Q</button>
+          <button class="key letter" data-char="W">W</button>
+          <button class="key letter" data-char="E">E</button>
+          <button class="key letter" data-char="R">R</button>
+          <button class="key letter" data-char="T">T</button>
+          <button class="key letter" data-char="Y">Y</button>
+          <button class="key letter" data-char="U">U</button>
+          <button class="key letter" data-char="I">I</button>
+          <button class="key letter" data-char="O">O</button>
+          <button class="key letter" data-char="P">P</button>
+        </div>
+        <div class="key-row">
+          <button class="key letter" data-char="A">A</button>
+          <button class="key letter" data-char="S">S</button>
+          <button class="key letter" data-char="D">D</button>
+          <button class="key letter" data-char="F">F</button>
+          <button class="key letter" data-char="G">G</button>
+          <button class="key letter" data-char="H">H</button>
+          <button class="key letter" data-char="J">J</button>
+          <button class="key letter" data-char="K">K</button>
+          <button class="key letter" data-char="L">L</button>
+        </div>
+        <div class="key-row">
+          <button class="key letter" data-char="Z">Z</button>
+          <button class="key letter" data-char="X">X</button>
+          <button class="key letter" data-char="C">C</button>
+          <button class="key letter" data-char="V">V</button>
+          <button class="key letter" data-char="B">B</button>
+          <button class="key letter" data-char="N">N</button>
+          <button class="key letter" data-char="M">M</button>
+        </div>
+      </div>
+      <div class="key-group" id="digitKeys">
+        <button class="key" data-char="1">1</button>
+        <button class="key" data-char="2">2</button>
+        <button class="key" data-char="3">3</button>
+        <button class="key" data-char="4">4</button>
+        <button class="key" data-char="5">5</button>
+        <button class="key" data-char="6">6</button>
+        <button class="key" data-char="7">7</button>
+        <button class="key" data-char="8">8</button>
+        <button class="key" data-char="9">9</button>
+        <span aria-hidden="true"></span>
+        <button class="key" data-char="0">0</button>
+        <span aria-hidden="true"></span>
+      </div>
+    </div>
+
+    <div class="log">
+      <h2>Transcript</h2>
+      <ol id="logList"></ol>
+    </div>
+  </div>
+
+  <div class="colophon">
+    <span class="colophon-hint">Choose a channel, then listen closely — every transmission runs one unit longer than the last. A miss repeats it; three garbled retries per round before the signal is lost for good.</span>
+    <div class="colophon-controls">
+      <button id="endBtn" type="button" disabled>End Transmission</button>
+      <button id="muteBtn" type="button" aria-pressed="false">Audio: On</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // Measure the real, currently-visible viewport ourselves rather than
+  // trusting 100dvh everywhere — inside an embedding page's own iframe
+  // dvh can end up taller than what's actually on screen, which is what
+  // forces the outer page to scroll instead of the frame sizing itself.
+  function syncViewportSize(){
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    var w = vv ? vv.width : window.innerWidth;
+    document.documentElement.style.setProperty('--app-vh', h + 'px');
+    document.documentElement.style.setProperty('--app-vw', w + 'px');
+  }
+  syncViewportSize();
+  window.addEventListener('resize', syncViewportSize);
+  window.addEventListener('orientationchange', syncViewportSize);
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', syncViewportSize);
+  }
+
+  var statusLine = document.getElementById('statusLine');
+  var digitOut = document.getElementById('digitOut');
+  var entryRow = document.getElementById('entryRow');
+  var roundOut = document.getElementById('roundOut');
+  var bestOut = document.getElementById('bestOut');
+  var channelOut = document.getElementById('channelOut');
+  var freqTag = document.getElementById('freqTag');
+  var logList = document.getElementById('logList');
+  var keypad = document.getElementById('keypad');
+  var expectHint = document.getElementById('expectHint');
+  var channelSelect = document.getElementById('channelSelect');
+  var channelButtons = Array.prototype.slice.call(channelSelect.querySelectorAll('.channel'));
+  var muteBtn = document.getElementById('muteBtn');
+  var endBtn = document.getElementById('endBtn');
+  var signalBars = document.getElementById('signalBars');
+
+  var CALLSIGNS = ['MDZhB','UVB-76','UZB-76','XSL','G06','E11','V02a','S06','M12'];
+  var MODE_LABEL = { numbers:'NUMERIC', letters:'ALPHA', mixed:'MIXED' };
+  var UNIT_WORD = { numbers:'digits', letters:'letters', mixed:'pairs' };
+
+  var phase = 'idle'; // idle | broadcasting | awaiting | success | retry | lost
+  var mode = 'numbers';
+  var sequence = [];   // array of unit strings, e.g. ['3','0','7'] or ['A2','F5']
+  var flatSeq = [];    // sequence flattened to individual characters, for input matching
+  var roundsCleared = 0;
+  var inputIndex = 0;
+  var best = 0;
+  var muted = false;
+  var timers = [];
+  var MAX_RETRIES = 3;
+  var retriesLeft = MAX_RETRIES;
+
+  try {
+    var stored = localStorage.getItem('numbers-station-best');
+    if (stored !== null) best = parseInt(stored, 10) || 0;
+  } catch (e) { /* storage unavailable, carry on without it */ }
+  bestOut.textContent = best;
+
+  // ---- tiny audio (oscillator only, no assets) ----
+  var actx = null;
+  function ctx(){
+    if (muted) return null;
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { muted = true; return null; }
+    }
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type, gainPeak){
+    var a = ctx();
+    if (!a) return;
+    var osc = a.createOscillator();
+    var gain = a.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, a.currentTime);
+    gain.gain.linearRampToValueAtTime(gainPeak || 0.08, a.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(a.destination);
+    osc.start();
+    osc.stop(a.currentTime + dur + 0.02);
+  }
+  function toneForUnit(unit){
+    var sum = 0;
+    for (var i = 0; i < unit.length; i++) sum += unit.charCodeAt(i);
+    beep(220 + (sum % 14) * 38, 0.55, 'sine', 0.07);
+  }
+  function tickConfirm(){ beep(880, 0.05, 'square', 0.03); }
+  function toneSuccess(){ beep(660, 0.14, 'sine', 0.08); setTimeout(function(){ beep(880, 0.18, 'sine', 0.08); }, 120); }
+  function toneFail(){ beep(160, 0.5, 'sawtooth', 0.09); }
+
+  function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+  function after(ms, fn){ var t = setTimeout(fn, ms); timers.push(t); return t; }
+
+  function randDigit(){ return Math.floor(Math.random() * 10); }
+  function randLetter(){ return String.fromCharCode(65 + Math.floor(Math.random() * 26)); }
+  function randUnit(){
+    if (mode === 'numbers') return String(randDigit());
+    if (mode === 'letters') return randLetter();
+    return randLetter() + String(randDigit());
+  }
+  function buildSequence(len){
+    var s = [];
+    for (var i = 0; i < len; i++) s.push(randUnit());
+    return s;
+  }
+  function rebuildFlat(){ flatSeq = sequence.join('').split(''); }
+
+  function setStatus(text, cls){
+    statusLine.textContent = text;
+    statusLine.className = 'status-line' + (cls ? ' ' + cls : '');
+  }
+
+  function allCharKeys(){ return keypad.querySelectorAll('.key[data-char]'); }
+  function disableAllKeys(){ allCharKeys().forEach(function(k){ k.disabled = true; }); }
+
+  function refreshInputAffordance(){
+    var expected = (phase === 'awaiting' && inputIndex < flatSeq.length) ? flatSeq[inputIndex] : null;
+    var expectedIsDigit = expected ? /[0-9]/.test(expected) : null;
+    allCharKeys().forEach(function(k){
+      if (!expected){ k.disabled = true; return; }
+      var isDigit = /[0-9]/.test(k.dataset.char);
+      k.disabled = (mode === 'mixed') ? (isDigit !== expectedIsDigit) : false;
+    });
+    if (mode === 'mixed' && expected){
+      expectHint.textContent = 'Next: ' + (expectedIsDigit ? 'digit' : 'letter');
+    } else {
+      expectHint.textContent = '';
+    }
+  }
+
+  function updateBars(){
+    var bars = signalBars.querySelectorAll('.bar');
+    bars.forEach(function(b, i){ b.classList.toggle('active', i < retriesLeft); });
+  }
+
+  function renderEntry(){
+    var idx = 0;
+    var groups = sequence.map(function(unit){
+      var chars = '';
+      for (var c = 0; c < unit.length; c++){
+        if (idx < inputIndex) chars += '<span class="filled">' + flatSeq[idx] + '</span>';
+        else if (idx === inputIndex) chars += '<span class="cursor">&#9608;</span>';
+        else chars += '<span class="pending">&middot;</span>';
+        idx++;
+      }
+      return chars;
+    });
+    entryRow.innerHTML = groups.join('<span class="unit-gap">&ndash;</span>');
+  }
+
+  function renderResults(reason){
+    // reason: 'miss' (ran out of retries) | 'ended' (operator stopped it)
+    var idx = 0;
+    var missIdx = (reason === 'miss') ? inputIndex : -1;
+    var groups = sequence.map(function(unit){
+      var chars = '';
+      for (var c = 0; c < unit.length; c++){
+        if (idx < inputIndex) chars += '<span class="result-got">' + flatSeq[idx] + '</span>';
+        else if (idx === missIdx) chars += '<span class="result-miss">' + flatSeq[idx] + '</span>';
+        else chars += '<span class="result-unseen">' + flatSeq[idx] + '</span>';
+        idx++;
+      }
+      return chars;
+    });
+    var trace = groups.join('<span class="unit-gap">&ndash;</span>');
+
+    var summary;
+    if (reason === 'miss'){
+      summary = 'Remembered ' + inputIndex + ' of ' + flatSeq.length + ' this round &mdash; broke on the underlined character.';
+    } else if (inputIndex === 0){
+      summary = 'Ended before answering. Here is what was coming:';
+    } else if (inputIndex === flatSeq.length){
+      summary = 'Ended right after clearing this round.';
+    } else {
+      summary = 'Ended after getting ' + inputIndex + ' of ' + flatSeq.length + ' right.';
+    }
+    summary += ' Cleared ' + roundsCleared + ' round' + (roundsCleared === 1 ? '' : 's') + ' on this run.';
+
+    entryRow.innerHTML = '<div class="result-stats">' + summary + '</div><div class="result-trace">' + trace + '</div>';
+  }
+
+  function logEntry(text, kind){
+    var li = document.createElement('li');
+    li.className = kind; // 'locked' | 'retry' | 'lost' | 'ended'
+    var badges = { locked: 'LOCKED', retry: 'RETRY', lost: 'LOST', ended: 'ENDED' };
+    var time = new Date();
+    var hh = String(time.getHours()).padStart(2,'0');
+    var mm = String(time.getMinutes()).padStart(2,'0');
+    var ss = String(time.getSeconds()).padStart(2,'0');
+    li.innerHTML = '<span>' + hh+':'+mm+':'+ss + ' &mdash; ' + text + '</span><span class="badge">' + badges[kind] + '</span>';
+    logList.appendChild(li);
+    while (logList.children.length > 10) logList.removeChild(logList.firstChild);
+  }
+
+  function newFrequency(){
+    var mhz = (4 + Math.random() * 20).toFixed(3);
+    freqTag.textContent = mhz + ' MHz · ' + CALLSIGNS[Math.floor(Math.random()*CALLSIGNS.length)];
+  }
+
+  function showChannelSelect(){
+    channelSelect.hidden = false;
+    keypad.hidden = true;
+  }
+  function hideChannelSelect(){
+    channelSelect.hidden = true;
+    keypad.hidden = false;
+  }
+
+  function startGame(){
+    clearTimers();
+    document.body.classList.add('playing');
+    roundsCleared = 0;
+    retriesLeft = MAX_RETRIES;
+    updateBars();
+    sequence = buildSequence(3);
+    rebuildFlat();
+    roundOut.textContent = 1;
+    newFrequency();
+    logList.innerHTML = '';
+    broadcastRound();
+  }
+
+  function broadcastRound(){
+    phase = 'broadcasting';
+    disableAllKeys();
+    endBtn.disabled = false;
+    inputIndex = 0;
+    roundOut.textContent = roundsCleared + 1;
+    entryRow.innerHTML = '';
+    setStatus('TRANSMITTING');
+    digitOut.textContent = ' ';
+    digitOut.classList.remove('lit', 'pair');
+
+    var i = 0;
+    function showNext(){
+      if (i >= sequence.length){
+        after(650, function(){
+          digitOut.textContent = ' ';
+          digitOut.classList.remove('lit');
+          beginInput();
+        });
+        return;
+      }
+      var unit = sequence[i];
+      digitOut.textContent = unit;
+      digitOut.classList.toggle('pair', unit.length > 1);
+      digitOut.classList.add('lit');
+      toneForUnit(unit);
+      after(900, function(){
+        digitOut.classList.remove('lit');
+        i++;
+        after(480, showNext);
+      });
+    }
+    after(550, showNext);
+  }
+
+  function beginInput(){
+    phase = 'awaiting';
+    setStatus('AWAITING RESPONSE');
+    renderEntry();
+    refreshInputAffordance();
+  }
+
+  function handleChar(ch){
+    if (phase !== 'awaiting') return;
+    if (ch === flatSeq[inputIndex]){
+      tickConfirm();
+      inputIndex++;
+      renderEntry();
+      if (inputIndex === flatSeq.length){
+        roundSuccess();
+      } else {
+        refreshInputAffordance();
+      }
+    } else if (retriesLeft > 0){
+      registerRetry();
+    } else {
+      finishGame('miss');
+    }
+  }
+
+  function registerRetry(){
+    phase = 'retry';
+    disableAllKeys();
+    endBtn.disabled = true;
+    expectHint.textContent = '';
+    toneFail();
+    retriesLeft--;
+    updateBars();
+    setStatus('GARBLED — REPEATING TRANSMISSION', 'lost');
+    logEntry(sequence.length + ' ' + UNIT_WORD[mode], 'retry');
+    after(1400, broadcastRound);
+  }
+
+  function roundSuccess(){
+    phase = 'success';
+    disableAllKeys();
+    endBtn.disabled = true;
+    expectHint.textContent = '';
+    setStatus('SIGNAL LOCKED', 'locked');
+    toneSuccess();
+    logEntry(sequence.length + ' ' + UNIT_WORD[mode], 'locked');
+    roundsCleared++;
+    if (roundsCleared > best){
+      best = roundsCleared;
+      bestOut.textContent = best;
+      try { localStorage.setItem('numbers-station-best', String(best)); }
+      catch (e) { /* ignore */ }
+    }
+    newFrequency();
+    sequence.push(randUnit());
+    rebuildFlat();
+    retriesLeft = MAX_RETRIES;
+    updateBars();
+    after(1100, broadcastRound);
+  }
+
+  function finishGame(reason){
+    // reason: 'miss' (retries exhausted) | 'ended' (operator stopped it)
+    phase = 'lost';
+    document.body.classList.remove('playing');
+    disableAllKeys();
+    endBtn.disabled = true;
+    expectHint.textContent = '';
+    toneFail();
+    if (reason === 'miss'){
+      setStatus('TRANSMISSION LOST', 'lost');
+      logEntry(sequence.length + ' ' + UNIT_WORD[mode], 'lost');
+    } else {
+      setStatus('TRANSMISSION ENDED', 'lost');
+      logEntry(sequence.length + ' ' + UNIT_WORD[mode], 'ended');
+    }
+    renderResults(reason);
+    showChannelSelect();
+  }
+
+  function abortGame(){
+    if (phase !== 'broadcasting' && phase !== 'awaiting') return;
+    clearTimers();
+    digitOut.classList.remove('lit');
+    digitOut.textContent = ' ';
+    finishGame('ended');
+  }
+
+  keypad.addEventListener('click', function(e){
+    var btn = e.target.closest('.key[data-char]');
+    if (btn && !btn.disabled) handleChar(btn.getAttribute('data-char'));
+  });
+
+  channelButtons.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      mode = btn.getAttribute('data-mode');
+      channelOut.textContent = MODE_LABEL[mode];
+      keypad.className = 'keypad mode-' + mode;
+      hideChannelSelect();
+      startGame();
+    });
+  });
+
+  endBtn.addEventListener('click', abortGame);
+
+  window.addEventListener('keydown', function(e){
+    if (phase === 'awaiting'){
+      if (/^[0-9]$/.test(e.key)){ handleChar(e.key); return; }
+      if (/^[a-zA-Z]$/.test(e.key)){ handleChar(e.key.toUpperCase()); return; }
+      if (e.key === 'Escape'){ abortGame(); return; }
+    } else if (phase === 'broadcasting'){
+      if (e.key === 'Escape'){ abortGame(); return; }
+    } else if (phase === 'idle' || phase === 'lost'){
+      if (e.key === '1') channelButtons[0].click();
+      else if (e.key === '2') channelButtons[1].click();
+      else if (e.key === '3') channelButtons[2].click();
+    }
+  });
+
+  muteBtn.addEventListener('click', function(){
+    muted = !muted;
+    muteBtn.textContent = 'Audio: ' + (muted ? 'Off' : 'On');
+    muteBtn.setAttribute('aria-pressed', String(muted));
+  });
+
+  // initial at-rest state: idle, ready for a channel to be chosen
+  setStatus('STANDBY');
+  endBtn.disabled = true;
+  updateBars();
+})();
+</script>
+</body>
+</html>
